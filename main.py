@@ -1,4 +1,4 @@
-#для запуска бота необходимо скачать соответсвующие библиотеки прописав(pip install aiogram, pip install matplotlib, pip install selenium) и запустить код, затем перейти в бота по его названию:parser_wildber_bot
+# для запуска бота необходимо скачать соответсвующие библиотеки прописав(pip install aiogram, pip install matplotlib, pip install selenium) и запустить код, затем перейти в бота по его названию:parser_wildber_bot
 from aiogram.types import InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import FSInputFile
@@ -6,18 +6,17 @@ import asyncio
 import time
 import matplotlib.pyplot as plt
 import os
+import sqlite3
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from aiogram import Bot, types
-from aiogram import Dispatcher, Bot 
+from aiogram import Dispatcher, Bot
 from aiogram.filters import Command, CommandStart
 import logging
 import sys
 import random
 
-
-TOKEN='6318591501:AAGaAED6S7pc3yewDMrMlLKVSY58d-v0pns'
-
+TOKEN = '6318591501:AAGaAED6S7pc3yewDMrMlLKVSY58d-v0pns'
 
 options = webdriver.ChromeOptions()
 options.add_argument('--ignore-certificate-errors')
@@ -40,20 +39,30 @@ initial_price = None
 is_tracking = False
 graph_price = []
 
+# Создаем подключение к базе данных
+conn = sqlite3.connect('parser_wildber_bot.db')
+cursor = conn.cursor()
+
+# Создаем таблицу для хранения данных о ценах
+cursor.execute('''CREATE TABLE IF NOT EXISTS prices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    price INTEGER,
+                    timestamp INTEGER)''')
+conn.commit()
+
 async def set_user_data(message: types.Message):
     global req, count, min_price, max_price, min_rating
     data = message.text.split()
     if len(data) >= 5:
-        req = " ".join(data[:1])
-        count = int(data[1])
-        min_price = int(data[2])
-        max_price = int(data[3])
-        min_rating = float(data[4])
+        req = " ".join(data[:-4])  # объединяем все слова кроме последних четырех
+        count = int(data[-4])
+        min_price = int(data[-3])
+        max_price = int(data[-2])
+        min_rating = float(data[-1])
         await message.answer("Пожалуйста, подождите, пока я найду товары...")
         await search_products(message)
     else:
         await message.answer("Недостаточно данных. Пожалуйста, введите название товара, количество страниц для поиска, минимальную цену, максимальную цену и минимальный рейтинг через пробел.")
-
 async def search_products(message: types.Message):
     driver = webdriver.Chrome(options=options)
     driver.get(f'https://www.wildberries.ru/catalog/0/search.aspx?page=1&sort=popular&search={req}')
@@ -73,7 +82,6 @@ async def search_products(message: types.Message):
 
                 price = int(driver.find_element(By.XPATH, f'/html/body/div[1]/main/div[2]/div/div[2]/div/div/div[4]/div[1]/div[1]/div/article[{i}]/div/div[3]/p/span/ins').text.replace(" ", "").replace("₽", ""))
                 rating = float(driver.find_element(By.XPATH, f'/html/body/div[1]/main/div[2]/div/div[2]/div/div/div[4]/div[1]/div[1]/div/article[{i}]/div/div[4]/p[1]/span[1]').text.replace(",", "."))
-            # print('price', driver.find_element(By.XPATH, f'/html/body/div[1]/main/div[2]/div/div[2]/div/div/div[4]/div[1]/div[1]/div/article[{i}]/div/div[3]/p/span/ins').text)
                 link = driver.find_element(By.XPATH, f'/html/body/div[1]/main/div[2]/div/div[2]/div/div/div[4]/div[1]/div[1]/div/article[{i}]/div/a').get_attribute('href')
                 results.append({'price': price, 'rating': rating, 'url': link})
                 if min_price <= price and price <= max_price and rating >= min_rating:
@@ -119,6 +127,8 @@ async def check_price():
     current_price = await asyncio.gather(get_price_async(url))
     if current_price is not None:
         graph_price.append(current_price[0])  # Добавляем цену в список graph_price каждую минуту
+        cursor.execute('INSERT INTO prices (price, timestamp) VALUES (?, ?)', (current_price[0], int(time.time())))
+        conn.commit()
         if current_price != initial_price:
             await bot.send_message(chat_id, f"Цена товара была изменена на: {current_price}руб.", reply_to_message_id=message_id)
             initial_price = current_price
@@ -132,18 +142,22 @@ async def set_url(message: types.Message):
     initial_price = await get_price_async(url)
     print(initial_price)
     graph_price.append(initial_price)  # Добавляем начальную цену в список graph_price
+    cursor.execute('INSERT INTO prices (price, timestamp) VALUES (?, ?)', (initial_price, int(time.time())))
+    conn.commit()
 
     is_tracking = True
 
     while True:
-        await asyncio.sleep(720 * 60)  # Спит 12 часов
+        await asyncio.sleep(1 * 60)  # Спит 12 часов
         await check_price()
 
 async def send_graph(chat_id):
-    if len(graph_price) >= 2:  # Проверяем, что список graph_price содержит как минимум 2 цены
+    cursor.execute('SELECT price, timestamp FROM prices ORDER BY timestamp ASC')
+    prices_data = cursor.fetchall()
+    if len(prices_data) >= 2:  # Проверяем, что список graph_price содержит как минимум 2 цены
         fig = plt.figure(figsize=(10, 5))
         temp_name=str(random.randint(1000000, 9999999))
-        plt.plot(graph_price)
+        plt.plot([price[1] for price in prices_data], [price[0] for price in prices_data])
         plt.xlabel('Время')
         plt.ylabel('Цена')
         plt.title('График изменения цены')
@@ -204,12 +218,10 @@ async def process_user_data(message: types.Message):
 
 async def main() -> None:
     # Initialize Bot instance with a default parse mode which will be passed to all API calls
-    
+
     # And the run events dispatching
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     asyncio.run(main())
-    
