@@ -150,10 +150,10 @@ def detect_face_and_lighting():
             notification_shown = False  # Reset the notification flag after 30 seconds
 
         # Display a notification if the number of blinks exceeds the threshold and a notification has not been shown yet
-        if blink_counter > 50 and not notification_shown:
-            show_notification("Усталось глаз", "Сделайте перерыв", "У вас повышенное количество морганий в минуту. Советую сделать перерыв")
-            blink_counter = 0
-            notification_shown = True  # Set the notification flag to True
+        #if blink_counter > 50 and not notification_shown:
+            #show_notification("Усталось глаз", "Сделайте перерыв", "У вас повышенное количество морганий в минуту. Советую сделать перерыв")
+            #blink_counter = 0
+            #notification_shown = True  # Set the notification flag to True
 
             # Pause for 1 second between iterations
             time.sleep(5)
